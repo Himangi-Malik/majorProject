@@ -1,4 +1,5 @@
 {
+  "mode": "local",
   "algo": "ring",
   "model": "ann",
   "lr": 0.01,
