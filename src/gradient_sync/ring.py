@@ -4,22 +4,6 @@
     teardown = close/free resources """
 
 
-def _setup_local(config: dict) -> dict:
-    print(
-        f"[ring._setup_local] received pipe endpoints for rank={config['rank']}"
-        f" (left_conn={config.get('left_conn') is not None}, right_conn={config.get('right_conn') is not None})",
-        flush=True,
-    )
-    return {
-        "mode": "local",
-        "rank": config["rank"],
-        "world_size": config["world_size"],
-        "left_conn": config["left_conn"],
-        "right_conn": config["right_conn"],
-        "transport": "pipe",
-    }
-
-
 def _setup_worker(config: dict) -> dict:
     return {
         "mode": "worker",
@@ -33,13 +17,10 @@ def setup(config: dict):
     mode = config["mode"]
 
     print(f"[ring.setup] mode={mode}, rank={config.get('rank')}, world_size={config.get('world_size')}", flush=True)
-
-    if mode == "local":
-        return _setup_local(config)
     if mode == "worker":
         return _setup_worker(config)
 
-    raise ValueError("mode must be one of: local, worker")
+    #raise ValueError("mode must be one of: local, worker")
 
 
 def average(local_grad, comm_ctx, config: dict):
