@@ -1,4 +1,5 @@
 import json
+import pickle
 import socket
 import time
 
@@ -24,6 +25,45 @@ def create_socket():
     return socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
 
+class SocketEndpoint:
+    def __init__(self, conn: socket.socket, listener: socket.socket | None = None):
+        self._conn = conn
+        self._listener = listener
+
+    def send(self, payload):
+        raw = pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL)
+        header = len(raw).to_bytes(4, byteorder="big")
+        self._conn.sendall(header + raw)
+
+    def recv(self):
+        data = bytearray()
+        while len(data) < 4:
+            chunk = self._conn.recv(4 - len(data))
+            if not chunk:
+                raise ConnectionError("socket closed while receiving payload")
+            data.extend(chunk)
+        header = bytes(data)
+        size = int.from_bytes(header, byteorder="big")
+        data = bytearray()
+        while len(data) < size:
+            chunk = self._conn.recv(size - len(data))
+            if not chunk:
+                raise ConnectionError("socket closed while receiving payload")
+            data.extend(chunk)
+        raw = bytes(data)
+        return pickle.loads(raw)
+
+    def close(self):
+        try:
+            self._conn.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        self._conn.close()
+
+        if self._listener is not None:
+            self._listener.close()
+
+
 def build_distributed_topology(algo, rank):
     if algo == "ring":
         config = load_json_config(CONFIG_PATH)
@@ -45,17 +85,16 @@ def build_distributed_topology(algo, rank):
                 time.sleep(0.2)
 
         left_conn, _ = listener.accept()
-        listener.close()
         return {
-            "left_conn": left_conn,
-            "right_conn": right_conn,
+            "left_endpoint": SocketEndpoint(left_conn, listener=listener),
+            "right_endpoint": SocketEndpoint(right_conn),
             "left_endpoint_info": {
-                "peer_rank": left_peer_rank,
+                "peer_rank": (rank - 1) % config["world_size"],
                 "direction": "left",
                 "transport": "socket",
             },
             "right_endpoint_info": {
-                "peer_rank": right_peer_rank,
+                "peer_rank": (rank + 1) % config["world_size"],
                 "direction": "right",
                 "transport": "socket",
             },
