@@ -52,19 +52,21 @@ def main() -> None:
     config = build_runtime_config(args)
     validate_config(config)
 
+    algo_module = get_algo_module(config["algo"])
+    model_module = get_model_module(config["model"])
+
+    print(
+        f"[runner] mode={config['mode']} algo={config['algo']} model={config['model']} "
+        f"world_size={config['world_size']} rank={config['rank']}",
+        flush=True,
+    )
+    print(f"[runner] selected algorithm module: {algo_module.__name__}", flush=True)
+    print(f"[runner] selected model module: {model_module.__name__}", flush=True)
+
     if config["mode"] == "local":
         if config["rank"] == 0:
             launch_local(config)
         return
-
-    algo_module = get_algo_module(config["algo"])
-    model_module = get_model_module(config["model"])
-
-    print("Final runtime config:")
-    print(json.dumps(config, indent=2))
-    print(f"Selected algorithm module: {algo_module.__name__}")
-    print(f"Selected model module: {model_module.__name__}")
-    print(f"Execution mode: {config['mode']}")
 
     run_worker(config)
 
