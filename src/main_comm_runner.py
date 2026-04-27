@@ -1,6 +1,7 @@
 import argparse
 import json
 
+from dist_launcher import launch_distributed
 from local_launcher import launch_local
 from worker_runner import get_algo_module, get_model_module, run_worker
 
@@ -66,6 +67,10 @@ def main() -> None:
     if config["mode"] == "local":
         if config["rank"] == 0:
             launch_local(config)
+        return
+        
+    if config["mode"] == "distributed":
+        launch_distributed(config)
         return
 
     run_worker(config)

@@ -20,16 +20,24 @@ class _SocketEndpointPlaceholder:
 
 
 def setup_distributed(config: dict) -> dict:
+    left_endpoint = config.get("left_endpoint")
+    right_endpoint = config.get("right_endpoint")
+
+    if left_endpoint is None or right_endpoint is None:
+        raise ValueError(
+            "distributed ring setup requires left_endpoint and right_endpoint in config"
+        )
+
     print(
-        f"[ring.setup] rank={config['rank']} mode=distributed transport=socket placeholder_endpoints=true",
+        f"[ring.setup] rank={config['rank']} mode=distributed transport=socket placeholder_endpoints=false",
         flush=True,
     )
     return {
         "mode": "distributed",
         "rank": config["rank"],
         "world_size": config["world_size"],
-        "left_endpoint": _SocketEndpointPlaceholder("left"),
-        "right_endpoint": _SocketEndpointPlaceholder("right"),
+        "left_endpoint": left_endpoint,
+        "right_endpoint": right_endpoint,
         "left_endpoint_info": config.get("left_endpoint_info"),
         "right_endpoint_info": config.get("right_endpoint_info"),
         "transport": "socket",

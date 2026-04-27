@@ -18,7 +18,7 @@ Current design:
 
 From project root:
 
-c:/Users/hp/Desktop/pytorch/.venv/Scripts/python.exe src/main_comm_runner.py --rank 0
+python src/main_comm_runner.py --rank 0
 
 Use a different rank on each machine.
 
