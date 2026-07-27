@@ -132,7 +132,7 @@ def average(local_grad, comm_ctx, config: dict):
         parent_endpoint = comm_ctx.get("parent_endpoint")
         if parent_endpoint is not None:
             try:
-                parent_endpoint.send({"gradients": accumulated})
+                parent_endpoint.send(accumulated)
                 if log_phases:
                     print(f"[tree.average] rank={rank} reduce_send_to_parent={parent}", flush=True)
             except Exception as e:
@@ -148,12 +148,12 @@ def average(local_grad, comm_ctx, config: dict):
             if left_child is not None:
                 left_endpoint = comm_ctx.get("left_child_endpoint")
                 if left_endpoint is not None:
-                    left_endpoint.send({"gradients": averaged_tensor})
+                    left_endpoint.send(averaged_tensor)
 
             if right_child is not None:
                 right_endpoint = comm_ctx.get("right_child_endpoint")
                 if right_endpoint is not None:
-                    right_endpoint.send({"gradients": averaged_tensor})
+                    right_endpoint.send(averaged_tensor)
         except Exception as e:
             print(f"[tree.average] rank={rank} error receiving broadcast from parent: {e}", flush=True)
             averaged_tensor = accumulated / float(world_size)
@@ -165,27 +165,28 @@ def average(local_grad, comm_ctx, config: dict):
             left_endpoint = comm_ctx.get("left_child_endpoint")
             if left_endpoint is not None:
                 try:
-                    left_endpoint.send({"gradients": averaged_tensor})
+                    left_endpoint.send(averaged_tensor)
                     if log_phases:
                         print(f"[tree.average] rank={rank} broadcast_send_to_left_child={left_child}", flush=True)
                 except Exception as e:
                     print(f"[tree.average] rank={rank} error sending to left_child: {e}", flush=True)
-        
+
         if right_child is not None:
             right_endpoint = comm_ctx.get("right_child_endpoint")
             if right_endpoint is not None:
                 try:
-                    right_endpoint.send({"gradients": averaged_tensor})
+                    right_endpoint.send(averaged_tensor)
                     if log_phases:
                         print(f"[tree.average] rank={rank} broadcast_send_to_right_child={right_child}", flush=True)
                 except Exception as e:
                     print(f"[tree.average] rank={rank} error sending to right_child: {e}", flush=True)
     
-    print(
-        f"[tree.average] rank={rank} final_avg {_tensor_summary(averaged_tensor)}",
-        flush=True,
-    )
-    
+    if log_phases:
+        print(
+            f"[tree.average] rank={rank} final_avg {_tensor_summary(averaged_tensor)}",
+            flush=True,
+        )
+
     return {
         **local_grad,
         "gradients": averaged_tensor,

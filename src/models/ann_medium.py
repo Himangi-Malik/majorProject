@@ -1,11 +1,11 @@
-"""ANN model module for distributed training benchmarks."""
+"""Medium ANN model module for distributed training benchmarks."""
 import torch
 import torch.nn as nn
 import torch.optim as optim
 
 
 class SimpleANN(nn.Module):
-    """Small fully connected network for Fashion-MNIST benchmark runs."""
+    """Medium fully connected network for Fashion-MNIST benchmark runs."""
 
     def __init__(self, input_dim: int = 28 * 28, hidden_dim: int = 128, output_dim: int = 10):
         super().__init__()
@@ -33,12 +33,12 @@ def _flatten_gradients(model):
 
 
 def build_model(config: dict):
-    """Build and initialize ANN model state."""
+    """Build and initialize medium ANN model state."""
     # CRITICAL: Set fixed seed on ALL ranks before model creation to ensure
     # identical parameter initialization. This is required for valid distributed SGD.
     seed = int(config.get("seed", 42))
     torch.manual_seed(seed)
-    
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     model = SimpleANN(
@@ -59,7 +59,7 @@ def build_model(config: dict):
     }
 
 
-def train_step(state,batch, config: dict):
+def train_step(state, batch, config: dict):
     """Execute one Fashion-MNIST training step """
     model = state["model"]
     criterion = state["criterion"]

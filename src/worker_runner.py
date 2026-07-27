@@ -1,5 +1,15 @@
 from gradient_sync import parameter_server, ring, tree
-from models import ann_model, cnn_model, rnn_model
+from models import (
+    ann_small,
+    ann_medium,
+    ann_large,
+    cnn_small,
+    cnn_medium,
+    cnn_large,
+    rnn_small,
+    rnn_medium,
+    rnn_large,
+)
 
 import torch
 import time
@@ -18,12 +28,12 @@ def get_algo_module(algo_tag: str):
     }[algo_tag]
 
 
-def get_model_module(model_tag: str):
+def get_model_module(model_tag: str, model_size: str = "medium"):
     return {
-        "ann": ann_model,
-        "cnn": cnn_model,
-        "rnn": rnn_model,
-    }[model_tag]
+        "ann": {"small": ann_small, "medium": ann_medium, "large": ann_large},
+        "cnn": {"small": cnn_small, "medium": cnn_medium, "large": cnn_large},
+        "rnn": {"small": rnn_small, "medium": rnn_medium, "large": rnn_large},
+    }[model_tag][model_size]
 
 
 def _compute_grad_norm(grad_tensor: torch.Tensor) -> float:
@@ -46,7 +56,7 @@ def _snapshot_endpoint_bytes(comm_ctx) -> tuple[int, int]:
 
 def run_worker(config):
     algo_module = get_algo_module(config["algo"])
-    model_module = get_model_module(config["model"])
+    model_module = get_model_module(config["model"], config.get("model_size", "medium"))
 
     rank = config["rank"]
     world_size = config["world_size"]
@@ -64,6 +74,7 @@ def run_worker(config):
         f"[rank {rank}] start "
         f"algo={config['algo']} "
         f"model={config['model']} "
+        f"model_size={config.get('model_size', 'medium')} "
         f"epochs={epochs} "
         f"steps={steps_per_epoch}",
         flush=True,

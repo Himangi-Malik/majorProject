@@ -135,7 +135,7 @@ def average(local_grad, comm_ctx, config: dict):
             
             if endpoint is not None:
                 try:
-                    endpoint.send({"gradients": averaged_tensor})
+                    endpoint.send(averaged_tensor)
                     if log_steps:
                         print(f"[ps.average] rank={rank} server_send_to_client={client_rank}", flush=True)
                 except Exception as e:
@@ -148,7 +148,7 @@ def average(local_grad, comm_ctx, config: dict):
             raise ValueError("parameter_server client missing server connection")
         
         try:
-            server_endpoint.send({"gradients": grad_tensor})
+            server_endpoint.send(grad_tensor)
             if log_steps:
                 print(f"[ps.average] rank={rank} client_send_to_server", flush=True)
             
@@ -161,11 +161,12 @@ def average(local_grad, comm_ctx, config: dict):
             print(f"[ps.average] rank={rank} client error communicating with server: {e}", flush=True)
             averaged_tensor = grad_tensor
     
-    print(
-        f"[ps.average] rank={rank} final_avg {_tensor_summary(averaged_tensor)}",
-        flush=True,
-    )
-    
+    if log_steps:
+        print(
+            f"[ps.average] rank={rank} final_avg {_tensor_summary(averaged_tensor)}",
+            flush=True,
+        )
+
     return {
         **local_grad,
         "gradients": averaged_tensor,

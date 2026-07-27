@@ -1,12 +1,21 @@
 import json
-import pickle
 import socket
 import time
 
+import torch
+
 from worker_runner import run_worker
 
+def _set_nodelay(sock):
+    # Disable Nagle's algorithm: this protocol is a tight send/recv round-trip
+    # per hop, and Nagle interacting with delayed ACKs adds tens of ms of
+    # stall per hop that has nothing to do with the algorithm being measured.
+    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    return sock
+
+
 def create_socket():
-    return socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    return _set_nodelay(socket.socket(socket.AF_INET, socket.SOCK_STREAM))
 
 
 class SocketEndpoint:
@@ -25,30 +34,31 @@ class SocketEndpoint:
         self.bytes_sent = 0
         self.bytes_received = 0
 
-    def send(self, payload):
-        raw = pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL)
-        header = len(raw).to_bytes(4, byteorder="big")
-        packet = header + raw
-        self._conn.sendall(packet)
-        self.bytes_sent += len(packet)
+    def _recv_exact(self, nbytes):
+        data = bytearray(nbytes)
+        view = memoryview(data)
+        received = 0
+        while received < nbytes:
+            n = self._conn.recv_into(view[received:], nbytes - received)
+            if n == 0:
+                raise ConnectionError("socket closed while receiving payload")
+            received += n
+        return data
+
+    def send(self, tensor):
+        """Send a 1-D float32 tensor as a raw length-prefixed buffer (no pickle)."""
+        array = tensor.detach().contiguous().numpy()
+        header = array.nbytes.to_bytes(4, byteorder="big")
+        self._conn.sendall(header)
+        self._conn.sendall(array.data)
+        self.bytes_sent += 4 + array.nbytes
 
     def recv(self):
-        data = bytearray()
-        while len(data) < 4:
-            chunk = self._conn.recv(4 - len(data))
-            if not chunk:
-                raise ConnectionError("socket closed while receiving payload")
-            data.extend(chunk)
-        size = int.from_bytes(bytes(data), byteorder="big")
-        data = bytearray()
-        while len(data) < size:
-            chunk = self._conn.recv(size - len(data))
-            if not chunk:
-                raise ConnectionError("socket closed while receiving payload")
-            data.extend(chunk)
-        payload = bytes(data)
+        """Receive a 1-D float32 tensor as a raw length-prefixed buffer (no pickle)."""
+        size = int.from_bytes(self._recv_exact(4), byteorder="big")
+        payload = self._recv_exact(size)
         self.bytes_received += 4 + size
-        return pickle.loads(payload)
+        return torch.frombuffer(payload, dtype=torch.float32).clone()
 
     def close(self):
         try:
@@ -127,6 +137,7 @@ def build_tree_topology(config):
     if tree_struct["left_child"] is not None:
         print(f"[dist_launcher] rank={rank} waiting to accept left_child connection on {local_ip}:{local_port}", flush=True)
         left_child_conn, _ = listener.accept()
+        _set_nodelay(left_child_conn)
         print(f"[dist_launcher] rank={rank} accepted connection from left_child", flush=True)
         endpoints["left_child_endpoint"] = SocketEndpoint(left_child_conn, rank=rank, direction="left_child")
         num_children += 1
@@ -134,6 +145,7 @@ def build_tree_topology(config):
     if tree_struct["right_child"] is not None:
         print(f"[dist_launcher] rank={rank} waiting to accept right_child connection on {local_ip}:{local_port}", flush=True)
         right_child_conn, _ = listener.accept()
+        _set_nodelay(right_child_conn)
         print(f"[dist_launcher] rank={rank} accepted connection from right_child", flush=True)
         endpoints["right_child_endpoint"] = SocketEndpoint(right_child_conn, rank=rank, direction="right_child")
         num_children += 1
@@ -170,6 +182,7 @@ def build_parameter_server_topology(config):
         for client_rank in range(1, world_size):
             print(f"[dist_launcher] rank={rank} ps_server waiting for client {client_rank}", flush=True)
             client_conn, client_addr = server_socket.accept()
+            _set_nodelay(client_conn)
             print(f"[dist_launcher] rank={rank} ps_server accepted client {client_rank} from {client_addr}", flush=True)
             endpoints[f"client_{client_rank}_endpoint"] = SocketEndpoint(
                 client_conn, rank=rank, direction=f"client_{client_rank}"
@@ -256,6 +269,7 @@ def build_ring_topology(config):
 
     print(f"[dist_launcher] rank={rank} waiting to accept left connection on {local_ip}:{local_port}", flush=True)
     left_conn, _ = listener.accept()
+    _set_nodelay(left_conn)
     print(f"[dist_launcher] rank={rank} accepted connection from left peer", flush=True)
     return {
         "left_endpoint": SocketEndpoint(left_conn, listener=listener, rank=rank, direction="left"),

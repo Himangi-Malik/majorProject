@@ -60,6 +60,24 @@ def _tensor_summary(tensor: torch.Tensor) -> str:
     return f"shape={tuple(tensor.shape)} dtype={tensor.dtype} sample={sample}"
 
 
+def _chunk_sizes(total_elems: int, world_size: int) -> list:
+    """Split total_elems into world_size near-equal chunk sizes."""
+    base, remainder = divmod(total_elems, world_size)
+    return [base + 1 if i < remainder else base for i in range(world_size)]
+
+
+def _exchange(send_tensor, left_endpoint, right_endpoint, rank: int):
+    """Send to the right neighbor and receive from the left neighbor, using
+    parity-based ordering so ranks don't deadlock on a simultaneous send."""
+    if rank % 2 == 0:
+        right_endpoint.send(send_tensor)
+        recv_tensor = left_endpoint.recv()
+    else:
+        recv_tensor = left_endpoint.recv()
+        right_endpoint.send(send_tensor)
+    return recv_tensor
+
+
 def average(local_grad, comm_ctx, config: dict):
     grad_tensor = _normalize_tensor_grad(local_grad.get("gradients"))
 
@@ -78,35 +96,39 @@ def average(local_grad, comm_ctx, config: dict):
         if left_endpoint is None or right_endpoint is None:
             raise ValueError("ring average requires left_endpoint and right_endpoint in comm_ctx")
 
-        # Tiny, slow ring pass: circulate tensors and accumulate.
-        send_buf = grad_tensor.clone()
-        running_sum = grad_tensor.clone()
+        # Chunked ring all-reduce: split the tensor into world_size chunks so
+        # each of the 2*(world_size-1) hops moves ~1/world_size of the data,
+        # instead of shipping the full tensor at every hop.
+        sizes = _chunk_sizes(grad_tensor.numel(), world_size)
+        chunks = [c.clone() for c in grad_tensor.split(sizes)]
 
-        for _ in range(world_size - 1):
-            if rank % 2 == 0:
-                right_endpoint.send(send_buf)
-                recv_buf = left_endpoint.recv()
-            else:
-                recv_buf = left_endpoint.recv()
-                right_endpoint.send(send_buf)
-
-            recv_tensor = _normalize_tensor_grad(recv_buf)
-            running_sum.add_(recv_tensor)
-            send_buf = recv_tensor
-
+        # Phase 1: scatter-reduce. After world_size-1 steps, chunk[(rank+1) % world_size]
+        # holds the fully summed value for that chunk.
+        for step in range(world_size - 1):
+            send_idx = (rank - step) % world_size
+            recv_idx = (rank - step - 1) % world_size
+            recv_chunk = _exchange(chunks[send_idx], left_endpoint, right_endpoint, rank)
+            chunks[recv_idx].add_(_normalize_tensor_grad(recv_chunk))
             if log_cycles:
-                cycle_avg = running_sum / float(_ + 2)
-                print(
-                    f"[ring.average] rank={rank} cycle={_ + 1}/{world_size - 1} running_avg {_tensor_summary(cycle_avg)}",
-                    flush=True,
-                )
+                print(f"[ring.average] rank={rank} scatter_reduce step={step + 1}/{world_size - 1}", flush=True)
 
-        averaged_tensor = running_sum / float(world_size)
+        # Phase 2: all-gather. Propagate each fully-summed chunk around the ring
+        # so every rank ends up with every chunk.
+        for step in range(world_size - 1):
+            send_idx = (rank - step + 1) % world_size
+            recv_idx = (rank - step) % world_size
+            recv_chunk = _exchange(chunks[send_idx], left_endpoint, right_endpoint, rank)
+            chunks[recv_idx] = _normalize_tensor_grad(recv_chunk)
+            if log_cycles:
+                print(f"[ring.average] rank={rank} all_gather step={step + 1}/{world_size - 1}", flush=True)
 
-    print(
-        f"[ring.average] rank={rank} final_avg {_tensor_summary(averaged_tensor)}",
-        flush=True,
-    )
+        averaged_tensor = torch.cat(chunks) / float(world_size)
+
+    if log_cycles:
+        print(
+            f"[ring.average] rank={rank} final_avg {_tensor_summary(averaged_tensor)}",
+            flush=True,
+        )
 
     return {
         **local_grad,

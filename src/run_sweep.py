@@ -25,20 +25,24 @@ from metrics.tables import generate_all_tables
 
 ALGORITHMS = [
     "ring",
-    "tree",
-    "parameter_server",
 ]
 
 MODELS = [
     "ann",
 ]
 
+MODEL_SIZES = [
+    "small",
+    "medium",
+    "large",
+]
+
 WORLD_SIZES = [
-    1,2,4,8
+    8
 ]
 
 BATCH_SIZES = [
-    128,256,512
+    32
 ]
 
 
@@ -68,9 +72,10 @@ def generate_experiments():
         dict: One experiment configuration.
     """
 
-    for algo, model, world_size, batch_size in product(
+    for algo, model, model_size, world_size, batch_size in product(
         ALGORITHMS,
         MODELS,
+        MODEL_SIZES,
         WORLD_SIZES,
         BATCH_SIZES,
     ):
@@ -79,6 +84,7 @@ def generate_experiments():
 
             "algo": algo,
             "model": model,
+            "model_size": model_size,
 
             "world_size": world_size,
             "batch_size": batch_size,
